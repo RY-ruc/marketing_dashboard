@@ -187,6 +187,51 @@ def add_week_columns(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame:
     return df
 
 
+def previous_period_bounds(
+    min_date: pd.Timestamp, start: pd.Timestamp, end: pd.Timestamp
+) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    """선택 기간과 같은 길이의 '직전 기간' 범위를 계산. 데이터 시작 이전이면 None."""
+    period_len = (end - start).days + 1
+    prev_end = start - pd.Timedelta(days=1)
+    if prev_end < min_date:
+        return None
+    prev_start = max(prev_end - pd.Timedelta(days=period_len - 1), min_date)
+    return prev_start, prev_end
+
+
+def pct_delta(current: float, previous: float) -> float | None:
+    """previous가 0/결측이면 비교 불가 -> None."""
+    if previous in (0, None) or pd.isna(previous):
+        return None
+    return (current - previous) / previous * 100
+
+
+def roas(conversions: float, cost: float, value_per_conversion: float) -> float:
+    """ROAS = (전환수 x 전환 1건당 가치) / 비용. 원본에 매출 컬럼이 없어 가치는 외부 입력."""
+    if not cost:
+        return float("nan")
+    return (conversions * value_per_conversion) / cost
+
+
+def breakeven_value_per_conversion(cost: float, conversions: float) -> float:
+    """ROAS=1이 되는 전환 1건당 가치. 전환이 0이면 계산 불가."""
+    if not conversions:
+        return float("nan")
+    return cost / conversions
+
+
+def zero_conversion_segments(df: pd.DataFrame) -> pd.DataFrame:
+    """전환이 0건인 세그먼트를 비용 내림차순으로 반환 (낭비 진단용)."""
+    return df[df["conversions"] == 0].sort_values("cost", ascending=False)
+
+
+def cumulative_cpa(df: pd.DataFrame) -> pd.Series:
+    """날짜순 누적비용/누적전환. 누적 전환이 0인 구간은 NaN(0으로 나누기 방지)."""
+    cum_cost = df["cost"].cumsum()
+    cum_conv = df["conversions"].cumsum()
+    return cum_cost / cum_conv.where(cum_conv > 0)
+
+
 def weighted_ctr(df: pd.DataFrame) -> float:
     impressions = df["impressions"].sum()
     return (df["clicks"].sum() / impressions * 100) if impressions else 0.0
